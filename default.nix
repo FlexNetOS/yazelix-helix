@@ -10,6 +10,12 @@
   includeGrammarIf ? _: true,
 }: let
   fs = lib.fileset;
+  version = "25.7.1";
+  yazelixFork = {
+    repo = "luccahuguet/yazelix-helix";
+    steel = true;
+    configDirFlag = true;
+  };
 
   src = fs.difference (fs.gitTracked ./.) (fs.unions [
     ./.envrc
@@ -54,8 +60,11 @@ in
     ];
 
     buildType = "release";
+    pname = "yazelix-helix";
+    inherit version;
+    cargoBuildFeatures = [ "steel" ];
+    cargoCheckFeatures = [ "steel" ];
 
-    name = with builtins; (fromTOML (readFile ./helix-term/Cargo.toml)).package.name;
     src = fs.toSource {
       root = ./.;
       fileset = src;
@@ -83,5 +92,14 @@ in
       cp ${./contrib/helix.png} $out/share/icons/hicolor/256x256/apps/helix.png
     '';
 
-    meta.mainProgram = "hx";
+    passthru = {
+      inherit runtimeDir yazelixFork;
+    };
+
+    meta = {
+      description = "Yazelix-owned Helix Steel editor runtime";
+      homepage = "https://github.com/luccahuguet/yazelix-helix";
+      license = lib.licenses.mpl20;
+      mainProgram = "hx";
+    };
   })

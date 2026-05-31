@@ -24,8 +24,9 @@
       });
     gitRev = self.rev or self.dirtyRev or null;
   in {
-    packages = eachSystem (system: {
+    packages = eachSystem (system: rec {
       inherit (pkgsFor.${system}) helix;
+      yazelix_helix = helix;
       /*
       The default Helix build. Uses the latest stable Rust toolchain, and unstable
       nixpkgs.
@@ -38,7 +39,7 @@
 
       packages.${system}.default.overrideAttrs { buildType = "debug"; };
       */
-      default = self.packages.${system}.helix;
+      default = yazelix_helix;
     });
     checks =
       lib.mapAttrs (system: pkgs: let
