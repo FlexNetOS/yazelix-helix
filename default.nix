@@ -62,8 +62,8 @@ in
     buildType = "release";
     pname = "yazelix-helix";
     inherit version;
-    cargoBuildFeatures = [ "steel" ];
-    cargoCheckFeatures = [ "steel" ];
+    buildFeatures = [ "steel" ];
+    checkFeatures = [ "steel" ];
 
     src = fs.toSource {
       root = ./.;
@@ -77,6 +77,7 @@ in
     HELIX_NIX_BUILD_REV = gitRev;
 
     doCheck = false;
+    doInstallCheck = true;
     strictDeps = true;
 
     # Sets the Helix runtime dir to the grammars
@@ -90,6 +91,12 @@ in
       cp ${./contrib/Helix.desktop} $out/share/applications/Helix.desktop
       cp ${./logo.svg} $out/share/icons/hicolor/scalable/apps/helix.svg
       cp ${./contrib/helix.png} $out/share/icons/hicolor/256x256/apps/helix.png
+    '';
+
+    installCheckPhase = ''
+      runHook preInstallCheck
+      grep -a -q HELIX_STEEL_CONFIG "$out/bin/hx"
+      runHook postInstallCheck
     '';
 
     passthru = {
