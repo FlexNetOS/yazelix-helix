@@ -1,29 +1,48 @@
-# Publish the Nix flake outputs to Cachix
-name: Cachix
+# Build and publish the Yazelix-owned Helix package to Cachix.
+name: Publish Yazelix Helix Cache
+
 on:
+  pull_request:
   push:
-    branches:
-      - master
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yazelix-helix-cache-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish Flake
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  build_x86_64_linux:
+    if: github.repository == 'luccahuguet/yazelix-helix'
+    name: Build and publish x86_64-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
     steps:
-    - name: Checkout sources
-      uses: actions/checkout@v6
+      - name: Checkout sources
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-    - name: Install nix
-      uses: cachix/install-nix-action@v31
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            extra-substituters = https://helix.cachix.org https://yazelix.cachix.org
+            extra-trusted-public-keys = helix.cachix.org-1:ejp9KQpR1FBI2onstMQ34yogDm4OgU2ru6lIwPvuCVs= yazelix.cachix.org-1:ZgxIjQvaP0VTWL8Racx27mpUNzDJ97xC2y7QWYjmGNM=
 
-    - name: Authenticate with Cachix
-      uses: cachix/cachix-action@v17
-      with:
-        name: helix
-        authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Configure Cachix publisher
+        if: github.event_name != 'pull_request'
+        uses: cachix/cachix-action@v17
+        with:
+          name: yazelix
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-    - name: Build nix flake
-      run: nix build -L
+      - name: Build Yazelix Helix package
+        run: |
+          nix build -L --no-link --print-out-paths \
+            .#packages.x86_64-linux.yazelix_helix
