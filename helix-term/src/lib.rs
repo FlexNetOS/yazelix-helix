@@ -11,6 +11,7 @@ pub mod health;
 pub mod job;
 pub mod keymap;
 pub mod ui;
+pub(crate) mod yazelix_bridge;
 
 #[cfg(not(windows))]
 use std::env::var_os;

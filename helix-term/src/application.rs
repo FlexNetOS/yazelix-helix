@@ -11,13 +11,13 @@ use helix_stdx::path::get_relative_path;
 use helix_view::{
     align_view,
     document::{DocumentOpenError, DocumentSavedEventResult},
-    editor::{ConfigEvent, EditorEvent},
+    editor::{Action, ConfigEvent, EditorEvent},
     graphics::Rect,
     theme,
     tree::Layout,
     Align, Editor,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tui::backend::Backend;
 
 use crate::{
@@ -29,12 +29,13 @@ use crate::{
     job::Jobs,
     keymap::Keymaps,
     ui::{self, overlay::overlaid},
+    yazelix_bridge::{BridgeCommand, BridgeRuntime, YazelixBridge},
 };
 
 use log::{debug, error, info, warn};
 use std::{
     io::{stdin, IsTerminal},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -81,6 +82,10 @@ pub struct Application {
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
+
+    _yazelix_bridge: Option<YazelixBridge>,
+    yazelix_bridge_requests: tokio::sync::mpsc::UnboundedReceiver<BridgeCommand>,
+    _disabled_yazelix_bridge_sender: Option<tokio::sync::mpsc::UnboundedSender<BridgeCommand>>,
 }
 
 #[cfg(feature = "integration")]
@@ -109,8 +114,6 @@ impl Application {
     pub fn new(args: Args, config: Config, lang_loader: syntax::Loader) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
         setup_integration_logging();
-
-        use helix_view::editor::Action;
 
         let mut theme_parent_dirs = vec![helix_loader::config_dir()];
         theme_parent_dirs.extend(helix_loader::runtime_dirs().iter().cloned());
@@ -273,6 +276,9 @@ impl Application {
         ])
         .context("build signal handler")?;
 
+        let bridge_runtime =
+            BridgeRuntime::from_env().context("failed to start Yazelix Helix bridge")?;
+
         let app = Self {
             compositor,
             terminal,
@@ -282,6 +288,9 @@ impl Application {
             jobs,
             lsp_progress: LspProgressMap::new(),
             theme_mode,
+            _yazelix_bridge: bridge_runtime.bridge,
+            yazelix_bridge_requests: bridge_runtime.requests,
+            _disabled_yazelix_bridge_sender: bridge_runtime._disabled_sender_guard,
         };
 
         Ok(app)
@@ -378,6 +387,12 @@ impl Application {
                     self.jobs.handle_local_callback(&mut self.editor, &mut self.compositor, callback);
                     self.render().await;
                 }
+                Some(command) = self.yazelix_bridge_requests.recv() => {
+                    let should_render = self.handle_yazelix_bridge_command(command);
+                    if should_render {
+                        self.render().await;
+                    }
+                }
                 event = self.editor.wait_event() => {
                     let _idle_handled = self.handle_editor_event(event).await;
 
@@ -397,6 +412,116 @@ impl Application {
                 self.editor.reset_idle_timer();
             }
         }
+    }
+
+    fn handle_yazelix_bridge_command(&mut self, command: BridgeCommand) -> bool {
+        let action = command.action.clone();
+        match action.as_str() {
+            "helix.get_context" => {
+                command.respond_ok(self.yazelix_bridge_context());
+                false
+            }
+            "helix.set_cwd" => {
+                let response = self.yazelix_bridge_set_cwd(&command.payload);
+                respond_yazelix_bridge_result(command, response);
+                true
+            }
+            "helix.open_files" => {
+                let response = self.yazelix_bridge_open_files(&command.payload);
+                respond_yazelix_bridge_result(command, response);
+                true
+            }
+            action => {
+                command.respond_error(
+                    "unsupported_action",
+                    format!("Helix bridge action `{action}` is not supported"),
+                );
+                false
+            }
+        }
+    }
+
+    fn yazelix_bridge_context(&self) -> Value {
+        let (view, doc) = current_ref!(self.editor);
+        json!({
+            "cwd": helix_stdx::env::current_working_dir().display().to_string(),
+            "current_file": doc.path().map(|path| path.display().to_string()),
+            "selection_count": doc.selection(view.id).len(),
+            "mode": mode_name(self.editor.mode()),
+        })
+    }
+
+    fn yazelix_bridge_set_cwd(&mut self, payload: &Value) -> Result<Value, (&'static str, String)> {
+        let working_dir = absolute_payload_path(payload, "working_dir")?;
+        self.editor.set_cwd(&working_dir).map_err(|err| {
+            (
+                "internal_error",
+                format!(
+                    "Could not change Helix working directory to `{}`: {err}",
+                    working_dir.display()
+                ),
+            )
+        })?;
+        self.editor.set_status(format!(
+            "Current working directory is now {}",
+            helix_stdx::env::current_working_dir().display()
+        ));
+        Ok(json!({
+            "cwd": helix_stdx::env::current_working_dir().display().to_string(),
+        }))
+    }
+
+    fn yazelix_bridge_open_files(
+        &mut self,
+        payload: &Value,
+    ) -> Result<Value, (&'static str, String)> {
+        if let Some(working_dir) = optional_absolute_payload_path(payload, "working_dir")? {
+            self.editor.set_cwd(&working_dir).map_err(|err| {
+                (
+                    "internal_error",
+                    format!(
+                        "Could not change Helix working directory to `{}`: {err}",
+                        working_dir.display()
+                    ),
+                )
+            })?;
+        }
+
+        let file_paths = payload
+            .get("file_paths")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                (
+                    "invalid_payload",
+                    "helix.open_files requires payload.file_paths".to_string(),
+                )
+            })?;
+        if file_paths.is_empty() {
+            return Err((
+                "invalid_payload",
+                "helix.open_files requires at least one file path".to_string(),
+            ));
+        }
+
+        let mut opened = Vec::with_capacity(file_paths.len());
+        for value in file_paths {
+            let Some(raw_path) = value.as_str() else {
+                return Err((
+                    "invalid_payload",
+                    "helix.open_files file_paths entries must be strings".to_string(),
+                ));
+            };
+            let path = absolute_path(raw_path, "helix.open_files file path")?;
+            self.editor.open(&path, Action::Replace).map_err(|err| {
+                (
+                    "internal_error",
+                    format!("Could not open `{}` in Helix: {err}", path.display()),
+                )
+            })?;
+            opened.push(path.display().to_string());
+        }
+
+        Ok(json!({ "opened": opened }))
     }
 
     pub fn handle_config_events(&mut self, config_event: ConfigEvent) {
@@ -876,7 +1001,10 @@ impl Application {
                         };
                         let language_server = language_server!();
                         if !language_server.is_initialized() {
-                            log::error!("Discarding publishDiagnostic notification sent by an uninitialized server: {}", language_server.name());
+                            log::error!(
+                                "Discarding publishDiagnostic notification sent by an uninitialized server: {}",
+                                language_server.name()
+                            );
                             return;
                         }
                         let provider = helix_core::diagnostic::DiagnosticProvider::Lsp {
@@ -1125,7 +1253,9 @@ impl Application {
                                             match serde_json::from_value(options) {
                                                 Ok(ops) => ops,
                                                 Err(err) => {
-                                                    log::warn!("Failed to deserialize DidChangeWatchedFilesRegistrationOptions: {err}");
+                                                    log::warn!(
+                                                        "Failed to deserialize DidChangeWatchedFilesRegistrationOptions: {err}"
+                                                    );
                                                     continue;
                                                 }
                                             };
@@ -1143,7 +1273,9 @@ impl Application {
                                         // case but that rejects the registration promise in the server which causes an
                                         // exit. So we work around this by ignoring the request and sending back an OK
                                         // response.
-                                        log::warn!("Ignoring a client/registerCapability request because dynamic capability registration is not enabled. Please report this upstream to the language server");
+                                        log::warn!(
+                                            "Ignoring a client/registerCapability request because dynamic capability registration is not enabled. Please report this upstream to the language server"
+                                        );
                                     }
                                 }
                             }
@@ -1161,7 +1293,10 @@ impl Application {
                                         .unregister(server_id, unreg.id);
                                 }
                                 _ => {
-                                    log::warn!("Received unregistration request for unsupported method: {}", unreg.method);
+                                    log::warn!(
+                                        "Received unregistration request for unsupported method: {}",
+                                        unreg.method
+                                    );
                                 }
                             }
                         }
@@ -1444,6 +1579,72 @@ impl Application {
         }
 
         errs
+    }
+}
+
+fn respond_yazelix_bridge_result(
+    command: BridgeCommand,
+    result: Result<Value, (&'static str, String)>,
+) {
+    match result {
+        Ok(data) => command.respond_ok(data),
+        Err((class, message)) => command.respond_error(class, message),
+    }
+}
+
+fn absolute_payload_path(
+    payload: &Value,
+    field: &'static str,
+) -> Result<PathBuf, (&'static str, String)> {
+    let Some(raw_path) = payload.get(field).and_then(Value::as_str) else {
+        return Err((
+            "invalid_payload",
+            format!("Bridge payload requires string field `{field}`"),
+        ));
+    };
+    absolute_path(raw_path, field)
+}
+
+fn optional_absolute_payload_path(
+    payload: &Value,
+    field: &'static str,
+) -> Result<Option<PathBuf>, (&'static str, String)> {
+    match payload.get(field) {
+        Some(value) => {
+            let Some(raw_path) = value.as_str() else {
+                return Err((
+                    "invalid_payload",
+                    format!("Bridge payload field `{field}` must be a string"),
+                ));
+            };
+            absolute_path(raw_path, field).map(Some)
+        }
+        None => Ok(None),
+    }
+}
+
+fn absolute_path(raw_path: &str, field: &'static str) -> Result<PathBuf, (&'static str, String)> {
+    if raw_path.trim().is_empty() {
+        return Err((
+            "invalid_payload",
+            format!("Bridge payload field `{field}` must be non-empty"),
+        ));
+    }
+    let path = PathBuf::from(raw_path);
+    if !path.is_absolute() {
+        return Err((
+            "invalid_payload",
+            format!("Bridge payload field `{field}` must be an absolute path"),
+        ));
+    }
+    Ok(path)
+}
+
+fn mode_name(mode: helix_view::document::Mode) -> &'static str {
+    match mode {
+        helix_view::document::Mode::Normal => "normal",
+        helix_view::document::Mode::Insert => "insert",
+        helix_view::document::Mode::Select => "select",
     }
 }
 

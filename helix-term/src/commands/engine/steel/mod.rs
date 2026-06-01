@@ -106,14 +106,12 @@ static EVENT_READER: OnceCell<EventReader> = OnceCell::new();
 static CTX: &str = "*helix.cx*";
 static CONFIG: &str = "*helix.config*";
 
-fn install_event_reader(event_reader: TerminalEventReaderHandle) {
-    #[cfg(feature = "integration")]
-    {}
+#[cfg(feature = "integration")]
+fn install_event_reader(_event_reader: TerminalEventReaderHandle) {}
 
-    #[cfg(all(not(windows), not(feature = "integration")))]
-    {
-        EVENT_READER.set(event_reader.reader).ok();
-    }
+#[cfg(all(not(windows), not(feature = "integration")))]
+fn install_event_reader(event_reader: TerminalEventReaderHandle) {
+    EVENT_READER.set(event_reader.reader).ok();
 }
 
 fn reload_engine() {
@@ -1480,7 +1478,11 @@ fn load_editor_api(engine: &mut Engine, generate_sources: bool) {
             CTX,
             "editor-document-reload",
             |cx: &mut Context, doc: DocumentId| -> anyhow::Result<()> {
-                let path = cx.editor.documents.get(&doc).and_then(|x| x.path().cloned());
+                let path = cx
+                    .editor
+                    .documents
+                    .get(&doc)
+                    .and_then(|x| x.path().cloned());
                 for (view, _) in cx.editor.tree.views_mut() {
                     if let Some(x) = cx.editor.documents.get_mut(&doc) {
                         x.reload(view, &cx.editor.diff_providers)?;
