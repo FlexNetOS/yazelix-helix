@@ -481,6 +481,8 @@ impl Application {
         payload: &Value,
     ) -> Result<Value, (&'static str, String)> {
         let working_dir = absolute_payload_path(payload, "working_dir")?;
+        let picker_dir = optional_absolute_payload_path(payload, "picker_dir")?
+            .unwrap_or_else(|| working_dir.clone());
         if !working_dir.is_dir() {
             return Err((
                 "invalid_payload",
@@ -499,11 +501,20 @@ impl Application {
                 ),
             )
         })?;
-        let picker = ui::file_picker(&self.editor, working_dir.clone());
+        if !picker_dir.is_dir() {
+            return Err((
+                "invalid_payload",
+                format!(
+                    "helix.open_directory requires picker_dir to be an existing directory: `{}`",
+                    picker_dir.display()
+                ),
+            ));
+        }
+        let picker = ui::file_picker(&self.editor, picker_dir.clone());
         self.compositor.push(Box::new(overlaid(picker)));
         Ok(json!({
             "cwd": helix_stdx::env::current_working_dir().display().to_string(),
-            "picker_root": working_dir.display().to_string(),
+            "picker_root": picker_dir.display().to_string(),
         }))
     }
 
