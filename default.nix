@@ -42,6 +42,18 @@
     rm -r $out/grammars
     ln -s ${grammars} $out/grammars
   '';
+  yazelixHelixPackageContract = {
+    schemaVersion = 1;
+    packageName = "yazelix-helix";
+    steelPluginRoot = "share/yazelix_helix/steel_plugins";
+    pluginIds = [
+      "recentf"
+      "splash"
+      "spacemacs_theme"
+      "keymaps"
+      "labelled_buffers"
+    ];
+  };
 in
   rustPlatform.buildRustPackage (self: {
     cargoLock = {
@@ -91,6 +103,8 @@ in
       cp ${./contrib/Helix.desktop} $out/share/applications/Helix.desktop
       cp ${./logo.svg} $out/share/icons/hicolor/scalable/apps/helix.svg
       cp ${./contrib/helix.png} $out/share/icons/hicolor/256x256/apps/helix.png
+      mkdir -p "$out/${yazelixHelixPackageContract.steelPluginRoot}"
+      cp -R ${./yazelix/steel_plugins}/. "$out/${yazelixHelixPackageContract.steelPluginRoot}/"
     '';
 
     installCheckPhase = ''
@@ -100,7 +114,7 @@ in
     '';
 
     passthru = {
-      inherit runtimeDir yazelixFork;
+      inherit runtimeDir yazelixFork yazelixHelixPackageContract;
     };
 
     meta = {

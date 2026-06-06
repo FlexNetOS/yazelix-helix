@@ -20,7 +20,11 @@
 
 A [Kakoune](https://github.com/mawww/kakoune) / [Neovim](https://github.com/neovim/neovim) inspired editor, written in Rust.
 
-Yazelix-specific fork notes live in [YAZELIX.md](./YAZELIX.md).
+Yazelix Helix is currently a thin Steel-enabled fork that tracks Helix Steel.
+It is usable as a standalone editor without Yazelix, packages reusable Steel
+plugin defaults, and keeps Yazelix integration hooks behind explicit runtime
+flags. Fork notes and the packaged Steel defaults contract live in
+[YAZELIX.md](./YAZELIX.md).
 
 The editing model is very heavily based on Kakoune; during development I found
 myself agreeing with most of Kakoune's design decisions.

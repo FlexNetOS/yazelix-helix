@@ -1,13 +1,24 @@
 # Yazelix Helix Fork Boundary
 
-This repository tracks Helix Steel and carries the smallest Yazelix-specific
-runtime hooks needed by managed Yazelix sessions.
+This repository currently tracks Helix Steel as a thin fork with
+Yazelix-compatible runtime hooks. It must remain usable as a standalone
+Steel-enabled Helix project without Yazelix.
 
-Current Yazelix-owned fork delta:
+Thinness is the current implementation shape, not a long-term constraint. This
+fork may grow when reusable editor behavior or defaults are useful outside
+Yazelix-managed sessions.
+
+Current fork delta:
 
 - `hx --config-dir <path>` for self-contained managed Helix config lookup
 - optional local Helix action bridge, enabled only when
   `YAZELIX_HELIX_BRIDGE=1`
+- packaged reusable Steel plugin defaults below
+  `share/yazelix_helix/steel_plugins`
+
+The packaged Steel plugin defaults are editor assets. They can be consumed by
+Yazelix managed sessions, standalone wrappers, or other downstream packages
+without inheriting Yazelix settings semantics.
 
 The bridge is not a general remote-control surface for arbitrary Helix
 instances. It is a Yazelix-managed local IPC endpoint used to replace terminal
@@ -47,3 +58,21 @@ Supported first-slice actions:
 Zellij remains responsible for panes, tabs, focus, layout, and workspace
 routing. The bridge owns only editor-local actions after the target Helix
 instance has been selected.
+
+## Packaged Steel Defaults
+
+The package exposes a Nix passthru contract named
+`yazelixHelixPackageContract`:
+
+```nix
+{
+  schemaVersion = 1;
+  packageName = "yazelix-helix";
+  steelPluginRoot = "share/yazelix_helix/steel_plugins";
+  pluginIds = [ "recentf" "splash" "spacemacs_theme" "keymaps" "labelled_buffers" ];
+}
+```
+
+The contract describes the reusable plugin repository shipped by this fork. It
+does not define which plugins Yazelix enables, when startup commands run, or how
+user plugin manifests are configured; those remain downstream policy.
