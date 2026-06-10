@@ -2,12 +2,16 @@
   stdenv,
   lib,
   runCommand,
+  fetchFromGitHub,
+  fetchgit,
   includeGrammarIf ? _: true,
   grammarOverlays ? [],
   ...
 }: let
   languagesConfig =
     builtins.fromTOML (builtins.readFile ./languages.toml);
+  grammarLock =
+    builtins.fromJSON (builtins.readFile ./grammar_sources.lock.json);
   isGitGrammar = grammar:
     builtins.hasAttr "source" grammar
     && builtins.hasAttr "git" grammar.source
@@ -30,25 +34,49 @@
     else true;
   grammarsToUse = builtins.filter useGrammar languagesConfig.grammar;
   gitGrammars = builtins.filter isGitGrammar grammarsToUse;
+  requireLockEntry = name:
+    if !(grammarLock.grammars ? ${name}) then
+      throw "grammar_sources.lock.json is missing entry for grammar '${name}'. Run: python3 scripts/grammar_source_lock.py update"
+    else grammarLock.grammars.${name};
+  fetchGrammarSrc = grammar: let
+    entry = requireLockEntry grammar.name;
+    grammarRev = grammar.source.rev;
+    grammarGit = grammar.source.git;
+  in
+    if entry.fetcher == "github" then
+      let
+        gh = toGitHubFetcher grammarGit;
+      in
+        if entry.owner != gh.owner || entry.repo != gh.repo then
+          throw "grammar_sources.lock.json owner/repo mismatch for grammar '${grammar.name}'"
+        else if entry.rev != grammarRev then
+          throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
+        else
+          fetchFromGitHub {
+            owner = entry.owner;
+            repo = entry.repo;
+            rev = entry.rev;
+            sha256 = entry.hash;
+          }
+    else if entry.fetcher == "git" then
+      if entry.url != grammarGit then
+        throw "grammar_sources.lock.json url mismatch for grammar '${grammar.name}'"
+      else if entry.rev != grammarRev then
+        throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
+      else
+        fetchgit {
+          url = entry.url;
+          rev = entry.rev;
+          sha256 = entry.hash;
+        }
+    else
+      throw "grammar_sources.lock.json has unsupported fetcher '${entry.fetcher}' for grammar '${grammar.name}'";
   buildGrammar = grammar: let
-    gh = toGitHubFetcher grammar.source.git;
-    sourceGit = builtins.fetchTree {
-      type = "git";
-      url = grammar.source.git;
-      rev = grammar.source.rev;
-      ref = grammar.source.ref or "HEAD";
-      shallow = true;
-    };
-    sourceGitHub = builtins.fetchTree {
-      type = "github";
-      owner = gh.owner;
-      repo = gh.repo;
-      inherit (grammar.source) rev;
-    };
-    source =
-      if isGitHubGrammar grammar
-      then sourceGitHub
-      else sourceGit;
+    fetchedSrc = fetchGrammarSrc grammar;
+    grammarSrc =
+      if builtins.hasAttr "subpath" grammar.source
+      then "${fetchedSrc}/${grammar.source.subpath}"
+      else fetchedSrc;
   in
     stdenv.mkDerivation {
       # see https://github.com/NixOS/nixpkgs/blob/fbdd1a7c0bc29af5325e0d7dd70e804a972eb465/pkgs/development/tools/parsing/tree-sitter/grammar.nix
@@ -56,16 +84,13 @@
       pname = "helix-tree-sitter-${grammar.name}";
       version = grammar.source.rev;
 
-      src = source;
-      sourceRoot =
-        if builtins.hasAttr "subpath" grammar.source
-        then "source/${grammar.source.subpath}"
-        else "source";
+      src = grammarSrc;
 
+      dontUnpack = true;
       dontConfigure = true;
 
       FLAGS = [
-        "-Isrc"
+        "-I${grammarSrc}/src"
         "-g"
         "-O3"
         "-fPIC"
@@ -78,13 +103,13 @@
       buildPhase = ''
         runHook preBuild
 
-        if [[ -e src/scanner.cc ]]; then
-          $CXX -c src/scanner.cc -o scanner.o $FLAGS
-        elif [[ -e src/scanner.c ]]; then
-          $CC -c src/scanner.c -o scanner.o $FLAGS
+        if [[ -e "$src/src/scanner.cc" ]]; then
+          $CXX -c "$src/src/scanner.cc" -o scanner.o $FLAGS
+        elif [[ -e "$src/src/scanner.c" ]]; then
+          $CC -c "$src/src/scanner.c" -o scanner.o $FLAGS
         fi
 
-        $CC -c src/parser.c -o parser.o $FLAGS
+        $CC -c "$src/src/parser.c" -o parser.o $FLAGS
         $CXX -shared -o $SHARED_LIB *.o
 
         runHook postBuild
