@@ -10,6 +10,8 @@ use toml::Value;
 
 const LOCK_VERSION: u32 = 1;
 const GITHUB_PREFIX: &str = "https://github.com/";
+const CODEBERG_PREFIX: &str = "https://codeberg.org/";
+const SOURCEHUT_PREFIX: &str = "https://git.sr.ht/";
 
 #[derive(Debug, Clone)]
 struct GrammarSource {
@@ -28,26 +30,27 @@ struct PrefetchKey {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 enum PrefetchKind {
     Github,
+    Archive,
     Git,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GrammarLockEntry {
     fetcher: String,
+    hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     repo: Option<String>,
+    rev: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
-    rev: String,
-    hash: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GrammarLockFile {
-    version: u32,
     grammars: BTreeMap<String, GrammarLockEntry>,
+    version: u32,
 }
 
 fn lock_path() -> PathBuf {
@@ -73,6 +76,17 @@ fn parse_github(url: &str) -> Result<(String, String), DynError> {
         .trim_end_matches('/')
         .to_string();
     Ok((owner, repo))
+}
+
+fn archive_url(git: &str, rev: &str) -> Option<String> {
+    let trimmed = git.trim_end_matches('/');
+    if trimmed.starts_with(CODEBERG_PREFIX) {
+        Some(format!("{trimmed}/archive/{rev}.tar.gz"))
+    } else if trimmed.starts_with(SOURCEHUT_PREFIX) {
+        Some(format!("{trimmed}/archive/{rev}.tar.gz"))
+    } else {
+        None
+    }
 }
 
 fn load_languages_config() -> Result<Value, DynError> {
@@ -150,6 +164,12 @@ impl GrammarSource {
                 identity: format!("{owner}/{repo}"),
                 rev: self.rev.clone(),
             })
+        } else if let Some(url) = archive_url(&self.git, &self.rev) {
+            Ok(PrefetchKey {
+                kind: PrefetchKind::Archive,
+                identity: url,
+                rev: self.rev.clone(),
+            })
         } else {
             Ok(PrefetchKey {
                 kind: PrefetchKind::Git,
@@ -164,26 +184,39 @@ impl GrammarSource {
             let (owner, repo) = parse_github(&self.git)?;
             Ok(GrammarLockEntry {
                 fetcher: "github".to_string(),
+                hash: hash.to_string(),
                 owner: Some(owner),
                 repo: Some(repo),
-                url: None,
                 rev: self.rev.clone(),
+                url: None,
+            })
+        } else if archive_url(&self.git, &self.rev).is_some() {
+            Ok(GrammarLockEntry {
+                fetcher: "archive".to_string(),
                 hash: hash.to_string(),
+                owner: None,
+                repo: None,
+                rev: self.rev.clone(),
+                url: Some(self.git.clone()),
             })
         } else {
             Ok(GrammarLockEntry {
                 fetcher: "git".to_string(),
+                hash: hash.to_string(),
                 owner: None,
                 repo: None,
-                url: Some(self.git.clone()),
                 rev: self.rev.clone(),
-                hash: hash.to_string(),
+                url: Some(self.git.clone()),
             })
         }
     }
 }
 
-fn run_nix_json(command: &str, package: &str, args: &[&str]) -> Result<serde_json::Value, DynError> {
+fn run_nix_json(
+    command: &str,
+    package: &str,
+    args: &[&str],
+) -> Result<serde_json::Value, DynError> {
     let output = Command::new("nix")
         .arg("run")
         .arg(format!("nixpkgs#{package}"))
@@ -217,11 +250,7 @@ fn prefetch_github(owner: &str, repo: &str, rev: &str) -> Result<String, DynErro
 }
 
 fn prefetch_git(url: &str, rev: &str) -> Result<String, DynError> {
-    let payload = run_nix_json(
-        "--json",
-        "nix-prefetch-git",
-        &["--url", url, "--rev", rev],
-    )?;
+    let payload = run_nix_json("--json", "nix-prefetch-git", &["--url", url, "--rev", rev])?;
     payload
         .get("hash")
         .and_then(serde_json::Value::as_str)
@@ -229,10 +258,35 @@ fn prefetch_git(url: &str, rev: &str) -> Result<String, DynError> {
         .ok_or_else(|| "nix-prefetch-git output missing hash".into())
 }
 
+fn prefetch_archive(git: &str, rev: &str) -> Result<String, DynError> {
+    let url = archive_url(git, rev)
+        .ok_or_else(|| format!("no archive fetcher is defined for grammar URL: {git}"))?;
+    let output = Command::new("nix")
+        .args(["store", "prefetch-file", "--json", "--unpack", &url])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "nix archive prefetch failed for {url}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let payload: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    payload
+        .get("hash")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "nix store prefetch-file output missing hash".into())
+}
+
 fn prefetch_source(source: &GrammarSource) -> Result<String, DynError> {
     if source.git.starts_with(GITHUB_PREFIX) {
         let (owner, repo) = parse_github(&source.git)?;
         prefetch_github(&owner, &repo, &source.rev)
+    } else if archive_url(&source.git, &source.rev).is_some() {
+        prefetch_archive(&source.git, &source.rev)
     } else {
         prefetch_git(&source.git, &source.rev)
     }
@@ -252,11 +306,7 @@ fn build_lock(sources: &[GrammarSource], jobs: usize) -> Result<GrammarLockFile,
     let failures = Arc::new(Mutex::new(Vec::<String>::new()));
     let jobs = jobs.max(1);
 
-    for chunk in unique_sources
-        .into_iter()
-        .collect::<Vec<_>>()
-        .chunks(jobs)
-    {
+    for chunk in unique_sources.into_iter().collect::<Vec<_>>().chunks(jobs) {
         let handles = chunk
             .iter()
             .map(|(key, source)| {
@@ -264,16 +314,17 @@ fn build_lock(sources: &[GrammarSource], jobs: usize) -> Result<GrammarLockFile,
                 let source = source.clone();
                 let hashes = Arc::clone(&hashes);
                 let failures = Arc::clone(&failures);
-                thread::spawn(move || {
-                    match prefetch_source(&source) {
-                        Ok(hash) => {
-                            hashes.lock().expect("hash mutex poisoned").insert(key, hash);
-                        }
-                        Err(error) => failures
+                thread::spawn(move || match prefetch_source(&source) {
+                    Ok(hash) => {
+                        hashes
                             .lock()
-                            .expect("failure mutex poisoned")
-                            .push(error.to_string()),
+                            .expect("hash mutex poisoned")
+                            .insert(key, hash);
                     }
+                    Err(error) => failures
+                        .lock()
+                        .expect("failure mutex poisoned")
+                        .push(error.to_string()),
                 })
             })
             .collect::<Vec<_>>();
@@ -299,8 +350,8 @@ fn build_lock(sources: &[GrammarSource], jobs: usize) -> Result<GrammarLockFile,
     }
 
     Ok(GrammarLockFile {
-        version: LOCK_VERSION,
         grammars,
+        version: LOCK_VERSION,
     })
 }
 
@@ -333,7 +384,10 @@ fn collect_validation_errors() -> Result<Vec<String>, DynError> {
     let config = load_languages_config()?;
     let sources = active_grammar_sources(&config)?;
     if !lock_path().exists() {
-        return Ok(vec![format!("missing lock file: {}", lock_path().display())]);
+        return Ok(vec![format!(
+            "missing lock file: {}",
+            lock_path().display()
+        )]);
     }
 
     let lock = load_lock()?;
@@ -384,6 +438,16 @@ fn collect_validation_errors() -> Result<Vec<String>, DynError> {
                 || entry.repo.as_deref() != Some(repo.as_str())
             {
                 errors.push(format!("{}: github owner/repo drift", source.name));
+            }
+        } else if archive_url(&source.git, &source.rev).is_some() {
+            if entry.fetcher != "archive" {
+                errors.push(format!(
+                    "{}: expected archive fetcher for archive-capable URL",
+                    source.name
+                ));
+            }
+            if entry.url.as_deref() != Some(source.git.as_str()) {
+                errors.push(format!("{}: archive url drift", source.name));
             }
         } else if entry.fetcher != "git" {
             errors.push(format!("{}: expected git fetcher", source.name));

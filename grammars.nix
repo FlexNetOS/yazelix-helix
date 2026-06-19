@@ -4,6 +4,7 @@
   runCommand,
   fetchFromGitHub,
   fetchgit,
+  fetchzip,
   includeGrammarIf ? _: true,
   grammarOverlays ? [],
   ...
@@ -17,6 +18,17 @@
     && builtins.hasAttr "git" grammar.source
     && builtins.hasAttr "rev" grammar.source;
   isGitHubGrammar = grammar: lib.hasPrefix "https://github.com" grammar.source.git;
+  isArchiveGrammarUrl = url:
+    lib.hasPrefix "https://codeberg.org/" url
+    || lib.hasPrefix "https://git.sr.ht/" url;
+  archiveGrammarUrl = url: rev: let
+    trimmed = lib.removeSuffix "/" url;
+  in
+    if lib.hasPrefix "https://codeberg.org/" trimmed
+    then "${trimmed}/archive/${rev}.tar.gz"
+    else if lib.hasPrefix "https://git.sr.ht/" trimmed
+    then "${trimmed}/archive/${rev}.tar.gz"
+    else throw "grammar source URL has no known archive fetcher: ${url}";
   toGitHubFetcher = url: let
     match = builtins.match "https://github\\.com/([^/]*)/([^/]*)/?" url;
   in {
@@ -63,11 +75,26 @@
         throw "grammar_sources.lock.json url mismatch for grammar '${grammar.name}'"
       else if entry.rev != grammarRev then
         throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
+      else if isArchiveGrammarUrl grammarGit then
+        throw "grammar_sources.lock.json unexpectedly uses raw git fetcher for archive-capable grammar '${grammar.name}'"
       else
         fetchgit {
           url = entry.url;
           rev = entry.rev;
           sha256 = entry.hash;
+        }
+    else if entry.fetcher == "archive" then
+      if entry.url != grammarGit then
+        throw "grammar_sources.lock.json url mismatch for grammar '${grammar.name}'"
+      else if entry.rev != grammarRev then
+        throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
+      else if !(isArchiveGrammarUrl grammarGit) then
+        throw "grammar_sources.lock.json uses archive fetcher for grammar '${grammar.name}' without a known archive URL"
+      else
+        fetchzip {
+          url = archiveGrammarUrl entry.url entry.rev;
+          sha256 = entry.hash;
+          stripRoot = true;
         }
     else
       throw "grammar_sources.lock.json has unsupported fetcher '${entry.fetcher}' for grammar '${grammar.name}'";

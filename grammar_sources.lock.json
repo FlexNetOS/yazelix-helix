@@ -622,7 +622,7 @@
       "rev": "e18d6e36a79b20dafb58f19d407bd38b0e60260e"
     },
     "gnuplot": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-2Z0CDtLOZ7LWffFboxO+tE0VWEkzNNodFMXr5PHQkoo=",
       "rev": "21a3a3929facb964b3592daeb69119294ff84cf2",
       "url": "https://codeberg.org/maribu/tree-sitter-gnuplot"
@@ -635,7 +635,7 @@
       "rev": "12fe553fdaaa7449f764bc876fd777704d4fb752"
     },
     "go-format-string": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-Em9uodgqj1TXyZieLuwrYouth5r4UvZoBFSSbzAqJE0=",
       "rev": "06587ea641155db638f46a32c959d68796cd36bb",
       "url": "https://codeberg.org/kpbaks/tree-sitter-go-format-string"
@@ -697,7 +697,7 @@
       "rev": "235009aad0f580211fc12014bb0846c3910130c1"
     },
     "hare": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-mONAnzm2YLeTvefeeRfrBVeaPhv/qnepZRIw9n0CUfI=",
       "rev": "07035a248943575444aa0b893ffe306e1444c0ab",
       "url": "https://git.sr.ht/~ecs/tree-sitter-hare"
@@ -1052,7 +1052,7 @@
       "rev": "e40f5b6e6df9c2d1d6d664ff5d346a75d71ee6b2"
     },
     "lua-format-string": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-fP1c2F/nn4BsmO1u0JAGbECQfv0J9TCZWqiwu6W+JvM=",
       "rev": "b667c8cab109df307e1b4d56b0b43f5c4a353533",
       "url": "https://codeberg.org/kpbaks/tree-sitter-lua-format-string"
@@ -1072,7 +1072,7 @@
       "rev": "ec187cafba510cddac265329ca7831ec6f3b9955"
     },
     "mail": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-ax9MlBuat3SmYJE5lkuTSula0A/RKoHljSqi9UZ2wO8=",
       "rev": "5eddbfdbec4c893182c79047499901c196332e78",
       "url": "https://codeberg.org/ficd/tree-sitter-mail"
@@ -1343,7 +1343,7 @@
       "rev": "eca2596a355b1a9952b4f80f8f9caed300a272b5"
     },
     "prolog": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-SEqqmkfV/wsr1ObcBN5My29RY9TWfxnQlsnEEIZyR18=",
       "rev": "d8d415f6a1cf80ca138524bcc395810b176d40fa",
       "url": "https://codeberg.org/foxy/tree-sitter-prolog"
@@ -1363,7 +1363,7 @@
       "rev": "778ab6ed18a7fcf82c83805a87d63376c51e80bc"
     },
     "proverif": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-fMtGQsEbZHNIamrz3hoGvCJn5Dtu0oHhuLmMxOjFhGU=",
       "rev": "7741807092c4009c1fe4c3648da60ca72b1b80f1",
       "url": "https://codeberg.org/maribu/tree-sitter-proverif"
@@ -1376,7 +1376,7 @@
       "rev": "09e158cd3650581c0af4c49c2e5b10c4834c8646"
     },
     "ptx": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-h2a+ievbZGAYFVl3aZxM4/zTn92/fnfxelHWKfnXoP8=",
       "rev": "3dfa6758d4c15832d051f933101992b9e01d6611",
       "url": "https://codeberg.org/jer-gremlin/tree-sitter-ptx"
@@ -1563,7 +1563,7 @@
       "rev": "c478c6868648eff49eb04a4df90d703dc45b312a"
     },
     "shellcheckrc": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-ag8xIRd66owaOMjH05eqZtRRYhViWP/OkLX3cWP1BJU=",
       "rev": "ad3da4e8f7fd72dcc5e93a6b89822c59a7cd10ff",
       "url": "https://codeberg.org/kpbaks/tree-sitter-shellcheckrc"
@@ -1632,7 +1632,7 @@
       "rev": "f2af8d0dc14c6790130cceb2a20027eb41a8297c"
     },
     "spade": {
-      "fetcher": "git",
+      "fetcher": "archive",
       "hash": "sha256-2Re/9TXRNLVmbq7iAFVgTj4Xt1P1yXjlWaLdNHC8ePU=",
       "rev": "996aaabea9a9fbe498ae0876356028a78e6ef8db",
       "url": "https://codeberg.org/spade-lang/tree-sitter-spade"
