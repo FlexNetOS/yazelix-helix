@@ -12,6 +12,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 const ENABLE_ENV: &str = "YAZELIX_HELIX_BRIDGE";
 const STATE_DIR_ENV: &str = "YAZELIX_STATE_DIR";
+const BRIDGE_ROOT_ENV: &str = "YAZELIX_HELIX_BRIDGE_ROOT";
 const SESSION_ID_ENV: &str = "YAZELIX_HELIX_BRIDGE_SESSION_ID";
 const INSTANCE_ID_ENV: &str = "YAZELIX_HELIX_BRIDGE_INSTANCE_ID";
 const AUTH_TOKEN_ENV: &str = "YAZELIX_HELIX_BRIDGE_AUTH_TOKEN";
@@ -41,7 +42,7 @@ pub(crate) struct BridgeCommand {
 
 #[derive(Debug, Clone)]
 struct BridgeConfig {
-    state_dir: PathBuf,
+    bridge_root: PathBuf,
     session_id: String,
     instance_id: String,
     auth_token: String,
@@ -182,7 +183,7 @@ impl BridgeConfig {
             return Ok(None);
         }
 
-        let state_dir = required_path_env(STATE_DIR_ENV)?;
+        let bridge_root = bridge_root_from_env()?;
         let session_id = required_id_env(SESSION_ID_ENV)?;
         let instance_id = std::env::var(INSTANCE_ID_ENV)
             .ok()
@@ -192,7 +193,7 @@ impl BridgeConfig {
         let auth_token = required_secret_env(AUTH_TOKEN_ENV)?;
 
         Ok(Some(Self {
-            state_dir,
+            bridge_root,
             session_id,
             instance_id,
             auth_token,
@@ -206,10 +207,7 @@ impl BridgeConfig {
 
 impl YazelixBridge {
     fn start(config: BridgeConfig, tx: UnboundedSender<BridgeCommand>) -> anyhow::Result<Self> {
-        let bridge_dir = config
-            .state_dir
-            .join("helix_bridge")
-            .join(&config.session_id);
+        let bridge_dir = config.bridge_root.join(&config.session_id);
         fs::create_dir_all(&bridge_dir)?;
         set_owner_only_dir_permissions(&bridge_dir)?;
 
@@ -611,6 +609,24 @@ fn required_path_env(name: &str) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(value))
 }
 
+fn optional_path_env(name: &str) -> anyhow::Result<Option<PathBuf>> {
+    match std::env::var(name) {
+        Ok(value) if value.trim().is_empty() => {
+            anyhow::bail!("{name} must be non-empty when set")
+        }
+        Ok(value) => Ok(Some(PathBuf::from(value))),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(err) => anyhow::bail!("Could not read {name}: {err}"),
+    }
+}
+
+fn bridge_root_from_env() -> anyhow::Result<PathBuf> {
+    if let Some(root) = optional_path_env(BRIDGE_ROOT_ENV)? {
+        return Ok(root);
+    }
+    Ok(required_path_env(STATE_DIR_ENV)?.join("helix_bridge"))
+}
+
 fn required_id_env(name: &str) -> anyhow::Result<String> {
     let value = std::env::var(name)?;
     validate_id(name, value)
@@ -710,5 +726,33 @@ mod tests {
     fn validate_id_rejects_path_traversal() {
         let err = validate_id("TEST_ID", "../session".to_string()).unwrap_err();
         assert!(err.to_string().contains("ASCII letters"));
+    }
+
+    // Regression: deep state roots can exceed Unix socket path limits, so the bridge honors a short IPC root while preserving session subdirectories.
+    #[test]
+    fn bridge_start_uses_configured_bridge_root() {
+        let state = tempfile::tempdir().unwrap();
+        let bridge_root = tempfile::tempdir_in("/tmp").unwrap();
+        let (tx, _rx) = unbounded_channel();
+        let config = BridgeConfig {
+            bridge_root: bridge_root.path().to_path_buf(),
+            session_id: "session-1".to_string(),
+            instance_id: "inst-1".to_string(),
+            auth_token: "secret".to_string(),
+            managed_config_path: None,
+            zellij_session_name: None,
+            zellij_tab_position: None,
+            zellij_pane_id: None,
+        };
+
+        let bridge = YazelixBridge::start(config, tx).unwrap();
+
+        assert!(!state.path().join("helix_bridge").join("session-1").exists());
+        assert!(bridge_root
+            .path()
+            .join("session-1")
+            .join("inst-1.json")
+            .is_file());
+        drop(bridge);
     }
 }
