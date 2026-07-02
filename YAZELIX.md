@@ -32,16 +32,19 @@ Bridge startup requires:
 
 Optional context:
 
+- `YAZELIX_HELIX_BRIDGE_ROOT`
 - `YAZELIX_HELIX_BRIDGE_INSTANCE_ID`
 - `YAZELIX_HELIX_MANAGED_CONFIG_PATH`
 - `ZELLIJ_SESSION_NAME`
 - `ZELLIJ_TAB_POSITION`
 - `ZELLIJ_PANE_ID`
 
-When enabled, Helix writes bridge registry and token files below:
+When enabled, Helix writes bridge registry and token files below
+`YAZELIX_HELIX_BRIDGE_ROOT` when it is set, otherwise below
+`YAZELIX_STATE_DIR/helix_bridge`:
 
 ```text
-$YAZELIX_STATE_DIR/helix_bridge/<session_id>/
+<bridge_root>/<session_id>/
 ```
 
 The registry advertises the native local IPC transport for the current
