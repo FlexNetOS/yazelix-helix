@@ -81,6 +81,7 @@
           url = entry.url;
           rev = entry.rev;
           sha256 = entry.hash;
+          fetchSubmodules = false;
         }
     else if entry.fetcher == "archive" then
       if entry.url != grammarGit then
