@@ -2,7 +2,6 @@
   stdenv,
   lib,
   runCommand,
-  fetchFromGitHub,
   fetchgit,
   fetchzip,
   includeGrammarIf ? _: true,
@@ -64,9 +63,8 @@
         else if entry.rev != grammarRev then
           throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
         else
-          fetchFromGitHub {
-            owner = entry.owner;
-            repo = entry.repo;
+          fetchgit {
+            url = "https://github.com/${entry.owner}/${entry.repo}";
             rev = entry.rev;
             sha256 = entry.hash;
           }
