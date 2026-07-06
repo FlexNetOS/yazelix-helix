@@ -67,6 +67,7 @@
             url = "https://github.com/${entry.owner}/${entry.repo}";
             rev = entry.rev;
             sha256 = entry.hash;
+            fetchSubmodules = false;
           }
     else if entry.fetcher == "git" then
       if entry.url != grammarGit then
