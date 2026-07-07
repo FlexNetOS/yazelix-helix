@@ -49,6 +49,11 @@
     if !(grammarLock.grammars ? ${name}) then
       throw "grammar_sources.lock.json is missing entry for grammar '${name}'. Run: cargo xtask grammar-lock update"
     else grammarLock.grammars.${name};
+  fetchGitLocked = entry: args:
+    fetchgit (args
+      // lib.optionalAttrs (entry ? sparseCheckout) {
+        inherit (entry) sparseCheckout;
+      });
   fetchGrammarSrc = grammar: let
     entry = requireLockEntry grammar.name;
     grammarRev = grammar.source.rev;
@@ -63,7 +68,7 @@
         else if entry.rev != grammarRev then
           throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
         else
-          fetchgit {
+          fetchGitLocked entry {
             url = "https://github.com/${entry.owner}/${entry.repo}";
             rev = entry.rev;
             sha256 = entry.hash;
@@ -77,7 +82,7 @@
       else if isArchiveGrammarUrl grammarGit then
         throw "grammar_sources.lock.json unexpectedly uses raw git fetcher for archive-capable grammar '${grammar.name}'"
       else
-        fetchgit {
+        fetchGitLocked entry {
           url = entry.url;
           rev = entry.rev;
           sha256 = entry.hash;
