@@ -2,6 +2,7 @@
   stdenv,
   lib,
   runCommand,
+  fetchFromGitHub,
   fetchgit,
   fetchzip,
   includeGrammarIf ? _: true,
@@ -49,16 +50,17 @@
     if !(grammarLock.grammars ? ${name}) then
       throw "grammar_sources.lock.json is missing entry for grammar '${name}'. Run: cargo xtask grammar-lock update"
     else grammarLock.grammars.${name};
-  # Keep source fetches lazy while avoiding fetchgit's racy find-based cleanup.
+  # Remove the root Git metadata before fetchgit enters either of its racy
+  # find-based cleanup paths.
   fetchGitLocked = entry: args:
-    fetchgit (args
-      // {
-        leaveDotGit = true;
-        postFetch = "rm -r $out/.git";
-      }
+    (fetchgit (args
       // lib.optionalAttrs (entry ? sparseCheckout) {
         inherit (entry) sparseCheckout;
-      });
+      })).overrideAttrs (old: {
+      env =
+        (old.env or {})
+        // {NIX_PREFETCH_GIT_CHECKOUT_HOOK = ''rm -rf "$dir/.git"'';};
+    });
   fetchGrammarSrc = grammar: let
     entry = requireLockEntry grammar.name;
     grammarRev = grammar.source.rev;
@@ -72,12 +74,17 @@
           throw "grammar_sources.lock.json owner/repo mismatch for grammar '${grammar.name}'"
         else if entry.rev != grammarRev then
           throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
-        else
+        else if entry ? sparseCheckout then
           fetchGitLocked entry {
             url = "https://github.com/${entry.owner}/${entry.repo}";
             rev = entry.rev;
             sha256 = entry.hash;
             fetchSubmodules = false;
+          }
+        else
+          fetchFromGitHub {
+            inherit (entry) owner repo rev;
+            sha256 = entry.hash;
           }
     else if entry.fetcher == "git" then
       if entry.url != grammarGit then
