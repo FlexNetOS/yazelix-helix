@@ -49,15 +49,16 @@
     if !(grammarLock.grammars ? ${name}) then
       throw "grammar_sources.lock.json is missing entry for grammar '${name}'. Run: cargo xtask grammar-lock update"
     else grammarLock.grammars.${name};
-  # Match upstream Helix's fetchTree path except where a lock entry requires a
-  # sparse checkout, which fetchTree cannot express.
-  fetchSparseGitLocked = entry: args:
+  # Keep source fetches lazy while avoiding fetchgit's racy find-based cleanup.
+  fetchGitLocked = entry: args:
     fetchgit (args
+      // {
+        leaveDotGit = true;
+        postFetch = "rm -r $out/.git";
+      }
       // lib.optionalAttrs (entry ? sparseCheckout) {
         inherit (entry) sparseCheckout;
       });
-  fetchTreeLocked = entry: args:
-    builtins.fetchTree (args // {narHash = entry.hash;});
   fetchGrammarSrc = grammar: let
     entry = requireLockEntry grammar.name;
     grammarRev = grammar.source.rev;
@@ -71,17 +72,12 @@
           throw "grammar_sources.lock.json owner/repo mismatch for grammar '${grammar.name}'"
         else if entry.rev != grammarRev then
           throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
-        else if entry ? sparseCheckout then
-          fetchSparseGitLocked entry {
+        else
+          fetchGitLocked entry {
             url = "https://github.com/${entry.owner}/${entry.repo}";
             rev = entry.rev;
             sha256 = entry.hash;
             fetchSubmodules = false;
-          }
-        else
-          fetchTreeLocked entry {
-            type = "github";
-            inherit (entry) owner repo rev;
           }
     else if entry.fetcher == "git" then
       if entry.url != grammarGit then
@@ -90,20 +86,12 @@
         throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
       else if isArchiveGrammarUrl grammarGit then
         throw "grammar_sources.lock.json unexpectedly uses raw git fetcher for archive-capable grammar '${grammar.name}'"
-      else if entry ? sparseCheckout then
-        fetchSparseGitLocked entry {
+      else
+        fetchGitLocked entry {
           url = entry.url;
           rev = entry.rev;
           sha256 = entry.hash;
           fetchSubmodules = false;
-        }
-      else
-        fetchTreeLocked entry {
-          type = "git";
-          url = entry.url;
-          rev = entry.rev;
-          ref = grammar.source.ref or "HEAD";
-          shallow = true;
         }
     else if entry.fetcher == "archive" then
       if entry.url != grammarGit then
