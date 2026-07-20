@@ -50,6 +50,17 @@
     if !(grammarLock.grammars ? ${name}) then
       throw "grammar_sources.lock.json is missing entry for grammar '${name}'. Run: cargo xtask grammar-lock update"
     else grammarLock.grammars.${name};
+  # Remove the root Git metadata before fetchgit enters either of its racy
+  # find-based cleanup paths.
+  fetchGitLocked = entry: args:
+    (fetchgit (args
+      // lib.optionalAttrs (entry ? sparseCheckout) {
+        inherit (entry) sparseCheckout;
+      })).overrideAttrs (old: {
+      env =
+        (old.env or {})
+        // {NIX_PREFETCH_GIT_CHECKOUT_HOOK = ''rm -rf "$dir/.git"'';};
+    });
   fetchGrammarSrc = grammar: let
     entry = requireLockEntry grammar.name;
     grammarRev = grammar.source.rev;
@@ -63,11 +74,16 @@
           throw "grammar_sources.lock.json owner/repo mismatch for grammar '${grammar.name}'"
         else if entry.rev != grammarRev then
           throw "grammar_sources.lock.json rev mismatch for grammar '${grammar.name}'"
+        else if entry ? sparseCheckout then
+          fetchGitLocked entry {
+            url = "https://github.com/${entry.owner}/${entry.repo}";
+            rev = entry.rev;
+            sha256 = entry.hash;
+            fetchSubmodules = false;
+          }
         else
           fetchFromGitHub {
-            owner = entry.owner;
-            repo = entry.repo;
-            rev = entry.rev;
+            inherit (entry) owner repo rev;
             sha256 = entry.hash;
           }
     else if entry.fetcher == "git" then
@@ -78,10 +94,11 @@
       else if isArchiveGrammarUrl grammarGit then
         throw "grammar_sources.lock.json unexpectedly uses raw git fetcher for archive-capable grammar '${grammar.name}'"
       else
-        fetchgit {
+        fetchGitLocked entry {
           url = entry.url;
           rev = entry.rev;
           sha256 = entry.hash;
+          fetchSubmodules = false;
         }
     else if entry.fetcher == "archive" then
       if entry.url != grammarGit then

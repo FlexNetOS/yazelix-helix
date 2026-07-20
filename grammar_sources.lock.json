@@ -1495,8 +1495,11 @@
     },
     "rpmspec": {
       "fetcher": "git",
-      "hash": "sha256-QHAcaZ5HbgoWpRDAau6IWPdBD2+WhBZVq9VDQRas5oU=",
+      "hash": "sha256-joh+vteTPzHcdcmdZ/RzUQQn4hf8hWK38XCVhJ25fK0=",
       "rev": "d0275cd1316d9b7a2e0fae028ce95a5a18741e1d",
+      "sparseCheckout": [
+        "src"
+      ],
       "url": "https://gitlab.com/cryptomilk/tree-sitter-rpmspec"
     },
     "rshtml": {
@@ -1960,10 +1963,13 @@
     },
     "wikitext": {
       "fetcher": "github",
-      "hash": "sha256-3wEuoko0/EpA10JloV9O95zMK+NSqaGV4x59puvT3dE=",
+      "hash": "sha256-1H7H6NVkZWoWQASME+TqiVACvTtBRD3hO+JzFn6NZc0=",
       "owner": "santhoshtr",
       "repo": "tree-sitter-wikitext",
-      "rev": "444214b31695e9dd4d32fb06247397fb8778a9d2"
+      "rev": "444214b31695e9dd4d32fb06247397fb8778a9d2",
+      "sparseCheckout": [
+        "src"
+      ]
     },
     "wit": {
       "fetcher": "github",
