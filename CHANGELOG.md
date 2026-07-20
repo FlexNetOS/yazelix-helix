@@ -20,6 +20,15 @@ Updated languages and queries:
 Packaging:
 -->
 
+# Unreleased (FlexNetOS fork)
+
+Packaging:
+
+* Synchronize the fork through parent commit `449b32cb` while retaining the
+  tested short Helix bridge-root extension.
+* Align standalone fork builds with the same reviewed Nixpkgs revision as the
+  consuming Yazelix foundation so no independent package universe is created.
+
 # 25.07.1 (2025-07-18)
 
 This is a patch release which lowers the GLIBC requirements of the release artifacts published to GitHub ([#13983](https://github.com/helix-editor/helix/pull/13983))
