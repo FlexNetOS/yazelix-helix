@@ -2,7 +2,9 @@
   description = "A post-modern text editor.";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    # Standalone fork checks use the same reviewed package universe as the
+    # consuming Yazelix foundation. The parent flake still follows this input.
+    nixpkgs.url = "github:nixos/nixpkgs/567a49d1913ce81ac6e9582e3553dd90a955875f";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";

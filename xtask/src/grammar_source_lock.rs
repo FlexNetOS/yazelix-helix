@@ -25,6 +25,7 @@ struct PrefetchKey {
     kind: PrefetchKind,
     identity: String,
     rev: String,
+    sparse_checkout: Vec<String>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -43,6 +44,8 @@ struct GrammarLockEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     repo: Option<String>,
     rev: String,
+    #[serde(rename = "sparseCheckout", skip_serializing_if = "Option::is_none")]
+    sparse_checkout: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
 }
@@ -156,30 +159,49 @@ fn active_grammar_sources(config: &Value) -> Result<Vec<GrammarSource>, DynError
 }
 
 impl GrammarSource {
+    fn sparse_checkout(&self) -> Option<Vec<String>> {
+        let src_only = matches!(
+            (self.name.as_str(), self.git.as_str()),
+            (
+                "rpmspec",
+                "https://gitlab.com/cryptomilk/tree-sitter-rpmspec"
+            ) | (
+                "wikitext",
+                "https://github.com/santhoshtr/tree-sitter-wikitext"
+            )
+        );
+        src_only.then(|| vec!["src".to_string()])
+    }
+
     fn prefetch_key(&self) -> Result<PrefetchKey, DynError> {
+        let sparse_checkout = self.sparse_checkout().unwrap_or_default();
         if self.git.starts_with(GITHUB_PREFIX) {
             let (owner, repo) = parse_github(&self.git)?;
             Ok(PrefetchKey {
                 kind: PrefetchKind::Github,
                 identity: format!("{owner}/{repo}"),
                 rev: self.rev.clone(),
+                sparse_checkout,
             })
         } else if let Some(url) = archive_url(&self.git, &self.rev) {
             Ok(PrefetchKey {
                 kind: PrefetchKind::Archive,
                 identity: url,
                 rev: self.rev.clone(),
+                sparse_checkout,
             })
         } else {
             Ok(PrefetchKey {
                 kind: PrefetchKind::Git,
                 identity: self.git.clone(),
                 rev: self.rev.clone(),
+                sparse_checkout,
             })
         }
     }
 
     fn lock_entry(&self, hash: &str) -> Result<GrammarLockEntry, DynError> {
+        let sparse_checkout = self.sparse_checkout();
         if self.git.starts_with(GITHUB_PREFIX) {
             let (owner, repo) = parse_github(&self.git)?;
             Ok(GrammarLockEntry {
@@ -188,6 +210,7 @@ impl GrammarSource {
                 owner: Some(owner),
                 repo: Some(repo),
                 rev: self.rev.clone(),
+                sparse_checkout,
                 url: None,
             })
         } else if archive_url(&self.git, &self.rev).is_some() {
@@ -197,6 +220,7 @@ impl GrammarSource {
                 owner: None,
                 repo: None,
                 rev: self.rev.clone(),
+                sparse_checkout,
                 url: Some(self.git.clone()),
             })
         } else {
@@ -206,6 +230,7 @@ impl GrammarSource {
                 owner: None,
                 repo: None,
                 rev: self.rev.clone(),
+                sparse_checkout,
                 url: Some(self.git.clone()),
             })
         }
@@ -215,7 +240,7 @@ impl GrammarSource {
 fn run_nix_json(
     command: &str,
     package: &str,
-    args: &[&str],
+    args: &[String],
 ) -> Result<serde_json::Value, DynError> {
     let output = Command::new("nix")
         .arg("run")
@@ -240,7 +265,12 @@ fn prefetch_github(owner: &str, repo: &str, rev: &str) -> Result<String, DynErro
     let payload = run_nix_json(
         "--json",
         "nix-prefetch-github",
-        &["--rev", rev, owner, repo],
+        &[
+            "--rev".to_string(),
+            rev.to_string(),
+            owner.to_string(),
+            repo.to_string(),
+        ],
     )?;
     payload
         .get("hash")
@@ -249,8 +279,18 @@ fn prefetch_github(owner: &str, repo: &str, rev: &str) -> Result<String, DynErro
         .ok_or_else(|| "nix-prefetch-github output missing hash".into())
 }
 
-fn prefetch_git(url: &str, rev: &str) -> Result<String, DynError> {
-    let payload = run_nix_json("--json", "nix-prefetch-git", &["--url", url, "--rev", rev])?;
+fn prefetch_git(url: &str, rev: &str, sparse_checkout: &[String]) -> Result<String, DynError> {
+    let mut args = vec![
+        "--url".to_string(),
+        url.to_string(),
+        "--rev".to_string(),
+        rev.to_string(),
+    ];
+    for path in sparse_checkout {
+        args.push("--sparse-checkout".to_string());
+        args.push(path.clone());
+    }
+    let payload = run_nix_json("--json", "nix-prefetch-git", &args)?;
     payload
         .get("hash")
         .and_then(serde_json::Value::as_str)
@@ -282,13 +322,16 @@ fn prefetch_archive(git: &str, rev: &str) -> Result<String, DynError> {
 }
 
 fn prefetch_source(source: &GrammarSource) -> Result<String, DynError> {
-    if source.git.starts_with(GITHUB_PREFIX) {
+    let sparse_checkout = source.sparse_checkout().unwrap_or_default();
+    if !sparse_checkout.is_empty() {
+        prefetch_git(&source.git, &source.rev, &sparse_checkout)
+    } else if source.git.starts_with(GITHUB_PREFIX) {
         let (owner, repo) = parse_github(&source.git)?;
         prefetch_github(&owner, &repo, &source.rev)
     } else if archive_url(&source.git, &source.rev).is_some() {
         prefetch_archive(&source.git, &source.rev)
     } else {
-        prefetch_git(&source.git, &source.rev)
+        prefetch_git(&source.git, &source.rev, &sparse_checkout)
     }
 }
 

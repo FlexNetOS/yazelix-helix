@@ -18,6 +18,19 @@ Fork notes and the packaged Steel defaults contract live in
 [YAZELIX.md](./YAZELIX.md). Main Yazelix fork policy lives in
 [Fork and child-repo maintenance](https://github.com/luccahuguet/yazelix/blob/main/docs/contracts/fork_child_repo_maintenance.md).
 
+### Fork LOC scorecard
+
+This scorecard measures the reviewable FlexNetOS fork delta against the
+authoritative parent commit recorded in the latest upstream-sync merge. It
+includes documentation and packaging changes and is refreshed whenever the
+fork delta changes.
+
+| Measure | Count |
+| --- | ---: |
+| Changed files | 6 |
+| Added lines | 85 |
+| Removed lines | 14 |
+
 ## Upstream Helix README
 
 <div align="center">
